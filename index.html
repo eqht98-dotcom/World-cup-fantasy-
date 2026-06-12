@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>فانتازي المونديال 2026 | Mondial Fantasy</title>
+<meta name="description" content="لعبة فانتازي بنظام كأس العالم 2026 — كوّن فريقك ونافس عبر الأدوار الإقصائية">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🏆</text></svg>">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<style>html,body{margin:0;padding:0}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useMemo } = React;
+
+/* =========================================================
+   فانتازي المونديال 2026 — Mondial Fantasy 2026 (Prototype)
+   Tournament-format fantasy game (groups → knockouts)
+   ========================================================= */
+
+const GOLD = "#FFB300";
+const GOLD_SOFT = "#E08F00";
+const NAVY = "#F4F6FF";
+const PANEL = "#FFFFFF";
+const PANEL2 = "#EEF1FF";
+const LINE = "#D9DFF5";
+const TEXT = "#18204A";
+const MUTED = "#5A6794";
+const GREEN = "#00B868";
+const RED = "#F23D52";
+const PITCH = "#16A45B";
+const C26R = "#FF2E63", C26G = "#00C26E", C26B = "#2F6BFF", C26P = "#8B3DFF", C26O = "#FF7A1A";
+const NODE_COLORS = [C26G, C26B, C26P, C26O, C26R, GOLD];
+
+const TEAMS = [
+  { id: "ARG", en: "Argentina", ar: "الأرجنتين", flag: "🇦🇷", str: 92, group: "A", c: "#6CACE4" },
+  { id: "NED", en: "Netherlands", ar: "هولندا", flag: "🇳🇱", str: 86, group: "A", c: "#FF7A00" },
+  { id: "KSA", en: "Saudi Arabia", ar: "السعودية", flag: "🇸🇦", str: 76, group: "A", c: "#1DBF73" },
+  { id: "USA", en: "USA", ar: "أمريكا", flag: "🇺🇸", str: 78, group: "A", c: "#E0455A" },
+  { id: "FRA", en: "France", ar: "فرنسا", flag: "🇫🇷", str: 93, group: "B", c: "#4D7CFF" },
+  { id: "ENG", en: "England", ar: "إنجلترا", flag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", str: 90, group: "B", c: "#D6354A" },
+  { id: "MAR", en: "Morocco", ar: "المغرب", flag: "🇲🇦", str: 83, group: "B", c: "#E3554A" },
+  { id: "JPN", en: "Japan", ar: "اليابان", flag: "🇯🇵", str: 79, group: "B", c: "#5A77E8" },
+  { id: "BRA", en: "Brazil", ar: "البرازيل", flag: "🇧🇷", str: 91, group: "C", c: "#FFD23F" },
+  { id: "ESP", en: "Spain", ar: "إسبانيا", flag: "🇪🇸", str: 93, group: "C", c: "#F2545B" },
+  { id: "POR", en: "Portugal", ar: "البرتغال", flag: "🇵🇹", str: 88, group: "C", c: "#2FBF71" },
+  { id: "GER", en: "Germany", ar: "ألمانيا", flag: "🇩🇪", str: 87, group: "C", c: "#F2C744" },
+];
+const TEAM = Object.fromEntries(TEAMS.map((t) => [t.id, t]));
+
+// [team, pos, en, ar, price, rating]
+const RAW = [
+  ["ARG","GK","E. Martínez","إي. مارتينيز",5.5,88],["ARG","DEF","Romero","روميرو",5.5,85],["ARG","DEF","Tagliafico","تاليافيكو",4.5,80],["ARG","MID","Enzo Fernández","إنزو فرنانديز",7.0,86],["ARG","MID","Mac Allister","ماك أليستر",7.5,87],["ARG","FWD","Messi","ميسي",10.5,94],["ARG","FWD","J. Álvarez","خوليان ألفاريز",9.0,89],
+  ["FRA","GK","Maignan","مينيان",5.5,87],["FRA","DEF","Saliba","ساليبا",6.0,88],["FRA","DEF","T. Hernández","ثيو هيرنانديز",6.0,85],["FRA","MID","Tchouaméni","تشواميني",6.0,84],["FRA","MID","Camavinga","كامافينغا",6.5,84],["FRA","FWD","Mbappé","مبابي",11.5,96],["FRA","FWD","Dembélé","ديمبيلي",9.5,91],
+  ["BRA","GK","Alisson","أليسون",5.5,88],["BRA","DEF","Marquinhos","ماركينيوس",5.5,85],["BRA","DEF","Militão","ميليتاو",5.0,83],["BRA","MID","Bruno Guimarães","برونو غيماريش",7.0,86],["BRA","MID","Rodrygo","رودريغو",8.5,88],["BRA","FWD","Vinícius Jr","فينيسيوس",11.0,94],["BRA","FWD","Raphinha","رافينيا",9.5,91],
+  ["ENG","GK","Pickford","بيكفورد",5.0,84],["ENG","DEF","Stones","ستونز",5.5,84],["ENG","DEF","Alexander-Arnold","أرنولد",6.0,85],["ENG","MID","Bellingham","بيلينغهام",9.5,92],["ENG","MID","Foden","فودين",8.5,88],["ENG","FWD","Kane","كين",10.5,93],["ENG","FWD","Saka","ساكا",9.0,90],
+  ["ESP","GK","Unai Simón","أوناي سيمون",5.0,84],["ESP","DEF","Cubarsí","كوبارسي",5.0,84],["ESP","DEF","Carvajal","كارفخال",5.0,82],["ESP","MID","Pedri","بيدري",8.5,90],["ESP","MID","Rodri","رودري",9.0,93],["ESP","FWD","Lamine Yamal","لامين يامال",11.0,95],["ESP","FWD","Nico Williams","نيكو ويليامز",8.5,88],
+  ["POR","GK","Diogo Costa","ديوغو كوستا",5.0,85],["POR","DEF","Rúben Dias","روبن دياش",6.0,87],["POR","DEF","Cancelo","كانسيلو",5.5,83],["POR","MID","Bruno Fernandes","برونو فرنانديز",8.5,88],["POR","MID","Vitinha","فيتينيا",7.5,87],["POR","FWD","Ronaldo","رونالدو",9.0,87],["POR","FWD","Rafael Leão","رافائيل لياو",8.5,87],
+  ["GER","GK","ter Stegen","تير شتيغن",5.0,85],["GER","DEF","Rüdiger","روديغر",5.5,85],["GER","DEF","Schlotterbeck","شلوتربيك",5.0,83],["GER","MID","Musiala","موسيالا",9.0,92],["GER","MID","Wirtz","فيرتس",9.5,93],["GER","FWD","Havertz","هافيرتز",8.5,87],["GER","FWD","Füllkrug","فولكروغ",7.0,82],
+  ["NED","GK","Verbruggen","فيربروخن",4.5,82],["NED","DEF","Van Dijk","فان دايك",6.0,88],["NED","DEF","Dumfries","دومفريس",5.5,83],["NED","MID","F. de Jong","دي يونغ",7.0,86],["NED","MID","Reijnders","رايندرز",7.0,85],["NED","FWD","Gakpo","غاكبو",8.5,87],["NED","FWD","Depay","ديباي",7.5,84],
+  ["KSA","GK","Al-Owais","العويس",4.5,78],["KSA","DEF","Al-Bulaihi","البليهي",4.0,75],["KSA","DEF","Abdulhamid","عبدالحميد",4.5,77],["KSA","MID","Kanno","كنو",5.0,78],["KSA","MID","Al-Juwayr","الجوير",5.0,79],["KSA","FWD","Al-Dawsari","الدوسري",6.5,82],["KSA","FWD","Al-Brikan","البريكان",5.5,78],
+  ["MAR","GK","Bounou","بونو",5.0,85],["MAR","DEF","Hakimi","حكيمي",6.5,88],["MAR","DEF","Aguerd","أكرد",5.0,82],["MAR","MID","Amrabat","أمرابط",5.5,81],["MAR","MID","Ounahi","أوناحي",5.5,80],["MAR","FWD","En-Nesyri","النصيري",7.0,83],["MAR","FWD","Ezzalzouli","الزلزولي",6.0,80],
+  ["USA","GK","Turner","تيرنر",4.5,78],["USA","DEF","Dest","ديست",4.5,78],["USA","DEF","C. Richards","ريتشاردز",4.5,77],["USA","MID","McKennie","ماكيني",5.5,80],["USA","MID","Reyna","رينا",5.5,79],["USA","FWD","Pulisic","بوليسيتش",7.5,84],["USA","FWD","Balogun","بالوغن",6.0,79],
+  ["JPN","GK","Suzuki","سوزوكي",4.5,78],["JPN","DEF","Tomiyasu","توميياسو",5.0,80],["JPN","DEF","Itakura","إيتاكورا",4.5,78],["JPN","MID","Endo","إندو",5.0,79],["JPN","MID","Kamada","كامادا",5.5,80],["JPN","FWD","Kubo","كوبو",7.0,83],["JPN","FWD","Mitoma","ميتوما",7.0,83],
+];
+const PLAYERS = RAW.map((p, i) => ({ id: i, team: p[0], pos: p[1], en: p[2], ar: p[3], price: p[4], rating: p[5] }));
+const P = Object.fromEntries(PLAYERS.map((p) => [p.id, p]));
+
+const FORMATION = { GK: 1, DEF: 4, MID: 4, FWD: 2 };
+const BUDGET = 100.0;
+const MAX_PER_TEAM = 2;
+const ROUNDS = [
+  { id: "MD1", ar: "الجولة 1", en: "Matchday 1", ko: false },
+  { id: "MD2", ar: "الجولة 2", en: "Matchday 2", ko: false },
+  { id: "MD3", ar: "الجولة 3", en: "Matchday 3", ko: false },
+  { id: "QF", ar: "ربع النهائي", en: "Quarter-finals", ko: true },
+  { id: "SF", ar: "نصف النهائي", en: "Semi-finals", ko: true },
+  { id: "F", ar: "النهائي", en: "Final", ko: true },
+];
+const BOTS = [
+  { ar: "صقر النقاط", en: "Points Falcon" },
+  { ar: "أبو تريبل", en: "Triple Cap" },
+  { ar: "مدرب الحارة", en: "Street Coach" },
+  { ar: "خبير الديفرنشل", en: "Differential Guru" },
+  { ar: "الجوهرة", en: "La Joya" },
+];
+
+/* ---------- simulation helpers ---------- */
+const poisson = (lam) => { const L = Math.exp(-lam); let k = 0, p = 1; do { k++; p *= Math.random(); } while (p > L); return k - 1; };
+const wPick = (arr, wf) => { const ws = arr.map(wf); const s = ws.reduce((a, b) => a + b, 0); let r = Math.random() * s; for (let i = 0; i < arr.length; i++) { r -= ws[i]; if (r <= 0) return arr[i]; } return arr[arr.length - 1]; };
+const goalW = (p) => ({ FWD: 5, MID: 3, DEF: 0.8, GK: 0.05 }[p.pos] * p.rating);
+const assistW = (p) => ({ FWD: 3, MID: 4, DEF: 1, GK: 0.1 }[p.pos] * p.rating);
+const goalPts = (pos) => ({ GK: 6, DEF: 6, MID: 5, FWD: 4 }[pos]);
+
+function simMatch(aId, bId, knockout) {
+  const a = TEAM[aId], b = TEAM[bId];
+  const d = (a.str - b.str) / 22;
+  let ga = poisson(Math.max(0.25, 1.25 + d)), gb = poisson(Math.max(0.25, 1.25 - d));
+  let pens = false, winner = null;
+  if (knockout && ga === gb) {
+    // extra time then penalties (penalty shootout itself scores no fantasy points)
+    if (Math.random() < 0.45) { Math.random() < a.str / (a.str + b.str) ? ga++ : gb++; }
+    else { pens = true; winner = Math.random() < a.str / (a.str + b.str) ? aId : bId; }
+  }
+  if (knockout && !pens) winner = ga > gb ? aId : bId;
+  const pts = {};
+  const sides = [ [aId, ga, gb], [bId, gb, ga] ];
+  for (const [tid, gf, gaAgainst] of sides) {
+    const squad = PLAYERS.filter((p) => p.team === tid);
+    squad.forEach((p) => { pts[p.id] = 2; }); // appearance
+    for (let g = 0; g < gf; g++) {
+      const scorer = wPick(squad, goalW);
+      pts[scorer.id] += goalPts(scorer.pos);
+      if (Math.random() < 0.7) {
+        const others = squad.filter((p) => p.id !== scorer.id);
+        pts[wPick(others, assistW).id] += 3;
+      }
+    }
+    if (gaAgainst === 0) squad.forEach((p) => { if (p.pos === "GK" || p.pos === "DEF") pts[p.id] += 4; else if (p.pos === "MID") pts[p.id] += 1; });
+    squad.forEach((p) => { if (Math.random() < 0.09) pts[p.id] -= 1; }); // card
+  }
+  return { a: aId, b: bId, ga, gb, pens, winner, pts };
+}
+
+const groupTeams = (g) => TEAMS.filter((t) => t.group === g).map((t) => t.id);
+function groupFixtures(mdIdx) {
+  const fx = [];
+  for (const g of ["A", "B", "C"]) {
+    const [t0, t1, t2, t3] = groupTeams(g);
+    if (mdIdx === 0) fx.push([t0, t1], [t2, t3]);
+    if (mdIdx === 1) fx.push([t0, t2], [t1, t3]);
+    if (mdIdx === 2) fx.push([t0, t3], [t1, t2]);
+  }
+  return fx;
+}
+function computeStandings(groupResults) {
+  const st = {};
+  TEAMS.forEach((t) => { st[t.id] = { pts: 0, gd: 0, gf: 0 }; });
+  groupResults.forEach((m) => {
+    st[m.a].gf += m.ga; st[m.b].gf += m.gb;
+    st[m.a].gd += m.ga - m.gb; st[m.b].gd += m.gb - m.ga;
+    if (m.ga > m.gb) st[m.a].pts += 3; else if (m.gb > m.ga) st[m.b].pts += 3; else { st[m.a].pts++; st[m.b].pts++; }
+  });
+  return st;
+}
+const rankCmp = (st) => (x, y) => st[y].pts - st[x].pts || st[y].gd - st[x].gd || st[y].gf - st[x].gf;
+
+/* ---------- UI bits ---------- */
+const Pill = ({ children, color = GOLD, bg = "rgba(255,179,0,.14)" }) => (
+  <span style={{ background: bg, color, borderRadius: 999, padding: "2px 10px", fontSize: 11, fontWeight: 700, whiteSpace: "nowrap" }}>{children}</span>
+);
+
+function App() {
+  const [lang, setLang] = useState("ar");
+  const ar = lang === "ar";
+  const t = (a, e) => (ar ? a : e);
+  const name = (p) => (ar ? p.ar : p.en);
+  const tname = (id) => (ar ? TEAM[id].ar : TEAM[id].en);
+
+  const [phase, setPhase] = useState("build"); // build | play | done
+  const [tab, setTab] = useState("team");
+  const [squad, setSquad] = useState([]);
+  const [captain, setCaptain] = useState(null);
+  const [roundIdx, setRoundIdx] = useState(0);
+  const [history, setHistory] = useState([]); // {roundId, matches, userPts, cost}
+  const [groupResults, setGroupResults] = useState([]);
+  const [alive, setAlive] = useState(new Set(TEAMS.map((t) => t.id)));
+  const [bracket, setBracket] = useState(null); // {qf:[[a,b]..], sf, f, champion}
+  const [botPts, setBotPts] = useState(BOTS.map(() => 0));
+  const [transfers, setTransfers] = useState(0);
+  const [chips, setChips] = useState({ tc: null, wc: null });
+  const [tcArmed, setTcArmed] = useState(false);
+  const [wcActive, setWcActive] = useState(false);
+  const [posFilter, setPosFilter] = useState("ALL");
+  const [teamFilter, setTeamFilter] = useState("ALL");
+  const [toast, setToast] = useState(null);
+
+  const spent = squad.reduce((s, id) => s + P[id].price, 0);
+  const counts = squad.reduce((c, id) => ((c[P[id].pos] = (c[P[id].pos] || 0) + 1), c), {});
+  const userTotal = history.reduce((s, h) => s + h.userPts - h.cost, 0);
+  const round = ROUNDS[roundIdx];
+  const knockoutWindow = roundIdx >= 3;
+  const tLimit = wcActive || knockoutWindow ? Infinity : 1;
+  const canTransfer = phase !== "play" || transfers < tLimit;
+  const extraCost = 0;
+
+  const ping = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2200); };
+
+  const canAdd = (p) => {
+    if (squad.includes(p.id)) return false;
+    if (!alive.has(p.team)) return false;
+    if (phase === "play" && !canTransfer) return false;
+    if ((counts[p.pos] || 0) >= FORMATION[p.pos]) return false;
+    if (squad.filter((id) => P[id].team === p.team).length >= MAX_PER_TEAM) return false;
+    if (spent + p.price > BUDGET + 1e-9) return false;
+    return true;
+  };
+  const add = (p) => {
+    if (!canAdd(p)) { if (phase === "play" && !canTransfer) ping(t("استنفدت الانتقال الوحيد لهذه الجولة", "You used your only transfer for this round")); return; }
+    setSquad((s) => [...s, p.id]);
+    if (phase === "play") setTransfers((x) => x + 1);
+  };
+  const remove = (id) => {
+    if (phase === "play" && !canTransfer) { ping(t("ممنوع! انتقال واحد فقط في دور المجموعات", "Not allowed — only 1 transfer per group-stage round")); return; }
+    setSquad((s) => s.filter((x) => x !== id));
+    if (captain === id) setCaptain(null);
+  };
+  const autoPick = () => {
+    const pick = [];
+    const cnt = {}; const perTeam = {}; let cost = 0;
+    const need = { GK: 1, DEF: 4, MID: 4, FWD: 2 };
+    const pool = [...PLAYERS].sort((a, b) => b.rating / b.price - a.rating / a.price);
+    for (const p of pool) {
+      if ((cnt[p.pos] || 0) >= need[p.pos]) continue;
+      if ((perTeam[p.team] || 0) >= MAX_PER_TEAM) continue;
+      const remainSlots = 11 - pick.length - 1;
+      if (cost + p.price + remainSlots * 4.0 > BUDGET) continue;
+      pick.push(p.id); cnt[p.pos] = (cnt[p.pos] || 0) + 1; perTeam[p.team] = (perTeam[p.team] || 0) + 1; cost += p.price;
+      if (pick.length === 11) break;
+    }
+    setSquad(pick);
+    setCaptain(pick.map((id) => P[id]).sort((a, b) => b.rating - a.rating)[0].id);
+  };
+
+  const valid = squad.length === 11 && captain != null && Object.entries(FORMATION).every(([k, v]) => (counts[k] || 0) === v);
+
+  /* ---------- play a round ---------- */
+  const playRound = () => {
+    if (!valid) { ping(t("أكمل تشكيلتك أولاً", "Complete your squad first")); return; }
+    let matches = [];
+    let newAlive = new Set(alive);
+    let newBracket = bracket ? { ...bracket } : null;
+
+    if (roundIdx <= 2) {
+      matches = groupFixtures(roundIdx).map(([a, b]) => simMatch(a, b, false));
+      const allGroup = [...groupResults, ...matches];
+      setGroupResults(allGroup);
+      if (roundIdx === 2) {
+        const st = computeStandings(allGroup);
+        const winners = [], runners = [], thirds = [];
+        for (const g of ["A", "B", "C"]) {
+          const ranked = groupTeams(g).sort(rankCmp(st));
+          winners.push(ranked[0]); runners.push(ranked[1]); thirds.push(ranked[2]);
+        }
+        winners.sort(rankCmp(st)); runners.sort(rankCmp(st)); thirds.sort(rankCmp(st));
+        const seeds = [...winners, ...runners, ...thirds.slice(0, 2)];
+        newAlive = new Set(seeds);
+        newBracket = { qf: [[seeds[0], seeds[7]], [seeds[3], seeds[4]], [seeds[1], seeds[6]], [seeds[2], seeds[5]]], qfR: null, sf: null, sfR: null, f: null, fR: null, champion: null };
+      }
+    } else if (roundIdx === 3) {
+      matches = bracket.qf.map(([a, b]) => simMatch(a, b, true));
+      newBracket = { ...bracket, qfR: matches, sf: [[matches[0].winner, matches[1].winner], [matches[2].winner, matches[3].winner]] };
+      newAlive = new Set(matches.map((m) => m.winner));
+    } else if (roundIdx === 4) {
+      matches = bracket.sf.map(([a, b]) => simMatch(a, b, true));
+      newBracket = { ...bracket, sfR: matches, f: [[matches[0].winner, matches[1].winner]] };
+      newAlive = new Set(matches.map((m) => m.winner));
+    } else {
+      matches = bracket.f.map(([a, b]) => simMatch(a, b, true));
+      newBracket = { ...bracket, fR: matches, champion: matches[0].winner };
+      newAlive = new Set([matches[0].winner]);
+    }
+
+    // user points
+    const allPts = Object.assign({}, ...matches.map((m) => m.pts));
+    let userPts = 0;
+    for (const id of squad) {
+      let pp = allPts[id] ?? 0;
+      if (id === captain) pp *= tcArmed ? 3 : 2;
+      userPts += pp;
+    }
+    const cost = extraCost;
+    setHistory((h) => [...h, { roundId: round.id, matches, userPts, cost, pts: allPts, tc: tcArmed }]);
+    // bots
+    const botGain = [55, 55, 55, 42, 26, 16][roundIdx];
+    setBotPts((b) => b.map((v) => v + Math.round(botGain * (0.65 + Math.random() * 0.7))));
+    if (tcArmed) setChips((c) => ({ ...c, tc: round.id }));
+    if (wcActive) setChips((c) => ({ ...c, wc: round.id }));
+    setTcArmed(false); setWcActive(false); setTransfers(0);
+    setAlive(newAlive); setBracket(newBracket);
+    if (roundIdx === 5) { setPhase("done"); setTab("matches"); }
+    else { setRoundIdx(roundIdx + 1); setPhase("play"); setTab("matches"); }
+    ping(t(`نقاط الجولة: ${userPts - cost}`, `Round points: ${userPts - cost}`));
+  };
+
+  const eliminatedInSquad = squad.filter((id) => !alive.has(P[id].team));
+  const lastRound = history[history.length - 1];
+
+  /* ---------- standings ---------- */
+  const standings = useMemo(() => computeStandings(groupResults), [groupResults]);
+
+  /* ---------- styles ---------- */
+  const S = {
+    app: { direction: ar ? "rtl" : "ltr", minHeight: "100vh", background: `linear-gradient(180deg, #FFFFFF 0%, ${NAVY} 30%, #FDF2F8 100%)`, color: TEXT, fontFamily: ar ? "'IBM Plex Sans Arabic', sans-serif" : "'Space Grotesk','IBM Plex Sans Arabic',sans-serif", paddingBottom: 90, position: "relative", overflowX: "hidden" },
+    card: { background: PANEL, border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, boxShadow: "0 4px 18px rgba(47,107,255,.08)" },
+    btn: (primary) => ({ background: primary ? `linear-gradient(135deg, ${C26R}, ${C26O} 55%, ${GOLD})` : PANEL, color: primary ? "#fff" : TEXT, border: primary ? "none" : `1.5px solid ${LINE}`, borderRadius: 10, padding: "10px 16px", fontWeight: 800, fontSize: 13, cursor: "pointer", fontFamily: "inherit", boxShadow: primary ? "0 4px 14px rgba(255,46,99,.35)" : "0 2px 8px rgba(47,107,255,.06)" }),
+    tabBtn: (on, c) => ({ flex: 1, padding: "10px 4px", background: on ? `color-mix(in srgb, ${c} 10%, transparent)` : "transparent", border: "none", borderBottom: on ? `3px solid ${c}` : "3px solid transparent", color: on ? c : MUTED, fontWeight: 800, fontSize: 12.5, cursor: "pointer", fontFamily: "inherit", borderRadius: "10px 10px 0 0" }),
+  };
+
+  const PlayerChip = ({ id }) => {
+    const p = P[id];
+    const tc = TEAM[p.team].c;
+    const dead = !alive.has(p.team);
+    const lp = lastRound?.pts?.[id];
+    return (
+      <div className="chipCard" style={{ "--tc": tc, width: 78, textAlign: "center", cursor: "pointer", position: "relative", opacity: dead ? 0.45 : 1 }} onClick={() => phase !== "done" && setCaptain(id)}>
+        <div style={{ fontSize: 22 }}>{TEAM[p.team].flag}</div>
+        <div className={`chipBody ${captain === id ? "cap" : ""}`} style={{ background: captain === id ? GOLD : PANEL2, color: captain === id ? "#1A1408" : TEXT, borderRadius: 8, padding: "3px 4px", fontSize: 10.5, fontWeight: 800, border: `1.5px solid ${captain === id ? GOLD : tc + "88"}`, lineHeight: 1.25 }}>
+          {name(p)}{captain === id ? " ©" : ""}
+          <div style={{ fontWeight: 600, color: captain === id ? "#3A2D10" : MUTED, fontSize: 9.5 }}>
+            {p.price.toFixed(1)} {lp != null ? `• ${lp === undefined ? 0 : (id === captain ? lp * (lastRound.tc ? 3 : 2) : lp)}${t("ن", "p")}` : ""}
+            {dead ? ` • ${t("أُقصي", "OUT")}` : ""}
+          </div>
+        </div>
+        {phase !== "done" && (
+          <button onClick={(e) => { e.stopPropagation(); remove(id); }} style={{ position: "absolute", top: -2, insetInlineEnd: 2, background: RED, color: "#fff", border: "none", borderRadius: "50%", width: 16, height: 16, fontSize: 10, lineHeight: "14px", cursor: "pointer", padding: 0 }}>×</button>
+        )}
+      </div>
+    );
+  };
+
+  const Row = ({ pos }) => (
+    <div style={{ display: "flex", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+      {squad.filter((id) => P[id].pos === pos).map((id) => <PlayerChip key={id} id={id} />)}
+      {Array.from({ length: FORMATION[pos] - (counts[pos] || 0) }).map((_, i) => (
+        <div key={i} onClick={() => { setTab("market"); setPosFilter(pos); }} style={{ width: 78, height: 58, border: "1.5px dashed rgba(255,255,255,.65)", borderRadius: 8, display: "grid", placeItems: "center", color: "rgba(255,255,255,.95)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>+ {t({ GK: "حارس", DEF: "مدافع", MID: "وسط", FWD: "مهاجم" }[pos], pos)}</div>
+      ))}
+    </div>
+  );
+
+  const MatchCard = ({ m }) => (
+    <div style={{ ...S.card, padding: "10px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      <div style={{ flex: 1, textAlign: "start", fontSize: 13, fontWeight: 700 }}>{TEAM[m.a].flag} {tname(m.a)}</div>
+      <div style={{ fontWeight: 900, fontSize: 15, color: GOLD_SOFT, whiteSpace: "nowrap" }}>{m.ga} – {m.gb}{m.pens ? <span style={{ fontSize: 10, color: MUTED }}> {t("(ركلات: فوز", "(pens: ")} {tname(m.winner)})</span> : ""}</div>
+      <div style={{ flex: 1, textAlign: "end", fontSize: 13, fontWeight: 700 }}>{tname(m.b)} {TEAM[m.b].flag}</div>
+    </div>
+  );
+
+  /* ================= render ================= */
+  return (
+    <div style={S.app}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;600;700&family=Space+Grotesk:wght@400;600;700&display=swap');
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        button { transition: transform .12s ease, filter .15s ease, box-shadow .2s ease, border-color .2s ease, color .2s ease; }
+        button:hover:not(:disabled) { filter: brightness(1.2); }
+        button:active:not(:disabled) { transform: scale(.95); }
+        button:focus-visible { outline: 2px solid ${GOLD}; outline-offset: 2px; }
+        .chipCard { transition: transform .15s ease, box-shadow .2s ease; }
+        .chipCard:hover { transform: translateY(-3px); }
+        .chipCard:hover .chipBody { box-shadow: 0 4px 14px color-mix(in srgb, var(--tc, ${GOLD}) 45%, transparent); }
+        button:hover:not(:disabled) { box-shadow: 0 4px 18px rgba(255,46,99,.25); }
+        .blob { position: absolute; width: 62vw; height: 62vw; min-width: 400px; min-height: 400px; border-radius: 50%; filter: blur(95px); opacity: .30; }
+        .b1 { background: ${C26R}; top: -18%; insetInlineStart: -12%; animation: drift1 13s ease-in-out infinite alternate; }
+        .b2 { background: ${C26G}; bottom: -22%; insetInlineEnd: -16%; animation: drift2 17s ease-in-out infinite alternate; }
+        .b3 { background: ${C26B}; top: 28%; insetInlineStart: 45%; animation: drift3 21s ease-in-out infinite alternate; }
+        @keyframes drift1 { to { transform: translate(11vw, 9vh) scale(1.18); } }
+        @keyframes drift2 { to { transform: translate(-9vw, -7vh) scale(1.12); } }
+        @keyframes drift3 { to { transform: translate(-13vw, 11vh) scale(1.22); } }
+        .emblem { position: fixed; top: 50%; left: 50%; width: min(85vw, 540px); opacity: .14; animation: floaty 9s ease-in-out infinite; }
+        @keyframes floaty { 0%,100% { transform: translate(-50%,-52%) rotate(-2deg); } 50% { transform: translate(-50%,-47%) rotate(2deg); } }
+        .gradText { background: linear-gradient(90deg, ${C26R}, ${GOLD}, ${C26G}, ${C26B}, ${C26R}); background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: hueSlide 6s linear infinite; }
+        @keyframes hueSlide { to { background-position: 300% 0; } }
+        .chipBody { transition: box-shadow .2s ease, background .2s ease; }
+        .cap { animation: capGlow 1.8s ease-in-out infinite; }
+        @keyframes capGlow { 0%,100% { box-shadow: 0 0 5px ${GOLD}88; } 50% { box-shadow: 0 0 16px ${GOLD}; } }
+        .mrow { transition: border-color .2s ease, background .2s ease, transform .15s ease; border-inline-start: 3px solid var(--tc) !important; }
+        .mrow:hover { border-color: var(--tc); background: ${PANEL2}; transform: translateX(0) scale(1.01); }
+        .node { transition: background .35s ease, box-shadow .35s ease, border-color .35s ease; }
+        ::-webkit-scrollbar { height: 4px; width: 4px; } ::-webkit-scrollbar-thumb { background:${LINE}; border-radius: 4px; }
+        @keyframes rise { from { opacity:0; transform: translateY(8px);} to { opacity:1; transform:none;} }
+        .rise { animation: rise .35s ease both; }
+        @keyframes pop { 0% { transform: scale(.6); opacity:0; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity:1; } }
+        .pop { animation: pop .4s ease both; }
+        @media (prefers-reduced-motion: reduce) { .rise, .pop, .cap, .blob, .emblem, .gradText { animation: none; } .chipCard, button, .mrow, .node { transition: none; } }
+      `}</style>
+
+      {/* energetic background: pastel color washes + original "26 + trophy" emblem */}
+      <div aria-hidden style={{ position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none", overflow: "hidden" }}>
+        <div className="blob b1" /><div className="blob b2" /><div className="blob b3" />
+        <svg className="emblem" viewBox="0 0 300 300" fill="none">
+          <defs>
+            <linearGradient id="wcFire" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stopColor={C26R} /><stop offset=".55" stopColor={C26O} /><stop offset="1" stopColor={GOLD} />
+            </linearGradient>
+            <linearGradient id="wcCool" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor={C26B} /><stop offset="1" stopColor={C26P} />
+            </linearGradient>
+          </defs>
+          <circle cx="150" cy="150" r="142" stroke="url(#wcFire)" strokeWidth="6" />
+          <g fill="url(#wcCool)" transform="translate(150,28)">
+            <path d="M-28 0 h56 v10 c0 26 -11 42 -28 47 c-17 -5 -28 -21 -28 -47 z" />
+            <path d="M-30 4 c-13 0 -20 8 -18 18 c2 10 11 15 22 15 l-4 -10 c-7 0 -11 -3 -12 -8 c-1 -5 4 -9 12 -9 z" />
+            <path d="M30 4 c13 0 20 8 18 18 c-2 10 -11 15 -22 15 l4 -10 c7 0 11 -3 12 -8 c1 -5 -4 -9 -12 -9 z" />
+            <rect x="-6" y="57" width="12" height="13" rx="2" />
+            <rect x="-19" y="70" width="38" height="9" rx="3" />
+          </g>
+          <text x="150" y="248" textAnchor="middle" fontSize="148" fontWeight="900" fill="url(#wcFire)" fontFamily="'Space Grotesk','IBM Plex Sans Arabic',sans-serif">26</text>
+        </svg>
+      </div>
+
+      <div style={{ position: "relative", zIndex: 1 }}>
+
+      {/* header */}
+      <div style={{ padding: "16px 16px 10px", maxWidth: 760, margin: "0 auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: 11, letterSpacing: 2, color: C26G, fontWeight: 700 }}>{t("نموذج تجريبي", "PROTOTYPE")} • 2026</div>
+            <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2 }}><span className="gradText">{t("فانتازي المونديال", "Mondial Fantasy")}</span> <span style={{ color: GOLD }}>⬡</span></div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ textAlign: "center", background: PANEL, border: `1px solid ${LINE}`, borderRadius: 10, padding: "4px 12px" }}>
+              <div key={userTotal} className="pop" style={{ fontSize: 17, fontWeight: 900, color: GOLD_SOFT }}>{userTotal}</div>
+              <div style={{ fontSize: 9, color: MUTED }}>{t("نقاطك", "Your pts")}</div>
+            </div>
+            <button onClick={() => setLang(ar ? "en" : "ar")} style={{ ...S.btn(false), padding: "8px 12px" }}>{ar ? "EN" : "ع"}</button>
+          </div>
+        </div>
+
+        {/* tournament rail — the spine of the game */}
+        <div style={{ display: "flex", alignItems: "center", marginTop: 16, overflowX: "auto", paddingBottom: 4 }}>
+          {ROUNDS.map((r, i) => {
+            const done = i < roundIdx || phase === "done";
+            const cur = i === roundIdx && phase !== "done";
+            const nc = NODE_COLORS[i];
+            return (
+              <div key={r.id} style={{ display: "flex", alignItems: "center", flex: i < ROUNDS.length - 1 ? 1 : "none", minWidth: 0 }}>
+                  <div style={{ textAlign: "center", minWidth: 54 }}>
+                    <div className="node" style={{ width: 14, height: 14, margin: "0 auto", transform: "rotate(45deg)", background: done ? nc : cur ? "#fff" : PANEL2, border: `2px solid ${done || cur ? nc : LINE}`, boxShadow: cur || done ? `0 0 10px ${nc}` : "none" }} />
+                  <div style={{ fontSize: 9.5, marginTop: 5, color: cur ? nc : done ? TEXT : MUTED, fontWeight: cur ? 800 : 600, whiteSpace: "nowrap" }}>{ar ? r.ar : r.en}</div>
+                </div>
+                {i < ROUNDS.length - 1 && <div style={{ flex: 1, height: 2, background: i < roundIdx ? `linear-gradient(90deg, ${nc}, ${NODE_COLORS[i + 1]})` : LINE, margin: "0 2px 14px" }} />}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* tabs */}
+      <div style={{ maxWidth: 760, margin: "0 auto", display: "flex", borderBottom: `1px solid ${LINE}`, padding: "0 8px" }}>
+        {[["team", t("فريقي", "My Team"), C26G], ["market", t("السوق", "Market"), GOLD], ["matches", t("البطولة", "Tournament"), C26R], ["rank", t("الترتيب", "Standings"), C26B]].map(([k, lbl, c]) => (
+          <button key={k} onClick={() => setTab(k)} style={S.tabBtn(tab === k, c)}>{lbl}</button>
+        ))}
+      </div>
+
+      <div style={{ maxWidth: 760, margin: "0 auto", padding: 14, display: "grid", gap: 12 }}>
+
+        {/* ===== TEAM ===== */}
+        {tab === "team" && (
+          <div className="rise" style={{ display: "grid", gap: 12 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <Pill>{t("الميزانية", "Budget")}: {(BUDGET - spent).toFixed(1)}M</Pill>
+              <Pill color={squad.length === 11 ? GREEN : TEXT} bg="rgba(61,214,140,.1)">{squad.length}/11</Pill>
+              {phase === "play" && <Pill color={Number.isFinite(tLimit) && transfers >= tLimit ? RED : TEXT} bg="rgba(226,100,92,.1)">{t("الانتقالات", "Transfers")}: {Number.isFinite(tLimit) ? `${transfers}/${tLimit} ${t("(انتقال واحد فقط)", "(1 only)")}` : `${transfers} (${t("غير محدودة", "unlimited")})`}</Pill>}
+              {eliminatedInSquad.length > 0 && <Pill color={RED} bg="rgba(226,100,92,.12)">⚠ {eliminatedInSquad.length} {t("لاعب من منتخب مُقصى", "from eliminated teams")}</Pill>}
+            </div>
+
+            {/* pitch */}
+            <div style={{ background: `linear-gradient(180deg, ${PITCH}, #0E7A43)`, border: `1.5px solid #0E8A4C`, borderRadius: 16, padding: "18px 8px", display: "grid", gap: 18, position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", inset: 0, opacity: 0.18, background: "repeating-linear-gradient(180deg, transparent 0 44px, rgba(255,255,255,.25) 44px 45px)" }} />
+              <div style={{ position: "relative", display: "grid", gap: 16 }}>
+                <Row pos="FWD" /><Row pos="MID" /><Row pos="DEF" /><Row pos="GK" />
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: MUTED, textAlign: "center" }}>{t("اضغط على اللاعب لتعيينه كابتن (نقاط ×2)", "Tap a player to set captain (×2 points)")}</div>
+
+            {/* chips */}
+            {phase !== "done" && (
+              <div style={{ display: "flex", gap: 8 }}>
+                <button disabled={!!chips.tc} onClick={() => setTcArmed(!tcArmed)} style={{ ...S.btn(tcArmed), flex: 1, opacity: chips.tc ? 0.4 : 1 }}>⭐ {t("كابتن ثلاثي", "Triple Captain")} {chips.tc ? `(${t("استُخدم", "used")})` : tcArmed ? `(${t("مفعّل", "armed")})` : ""}</button>
+                <button disabled={!!chips.wc || knockoutWindow || phase === "build"} onClick={() => setWcActive(!wcActive)} style={{ ...S.btn(wcActive), flex: 1, opacity: chips.wc || knockoutWindow || phase === "build" ? 0.4 : 1 }}>🃏 {t("وايلد كارد", "Wildcard")} {chips.wc ? `(${t("استُخدم", "used")})` : wcActive ? `(${t("مفعّل", "armed")})` : ""}</button>
+              </div>
+            )}
+
+            {phase === "build" && (
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={autoPick} style={{ ...S.btn(false), flex: 1 }}>⚡ {t("تشكيلة تلقائية", "Auto-pick")}</button>
+                <button onClick={() => { if (valid) { setPhase("play"); setTab("matches"); ping(t("تم اعتماد الفريق! ابدأ الجولة الأولى", "Squad confirmed! Play Matchday 1")); } else ping(t("أكمل 11 لاعب + كابتن", "Need 11 players + captain")); }} style={{ ...S.btn(true), flex: 1, opacity: valid ? 1 : 0.5 }}>✓ {t("اعتماد الفريق", "Confirm squad")}</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ===== MARKET ===== */}
+        {tab === "market" && (
+          <div className="rise" style={{ display: "grid", gap: 10 }}>
+            <div style={{ display: "flex", gap: 6, overflowX: "auto" }}>
+              {["ALL", "GK", "DEF", "MID", "FWD"].map((f) => (
+                <button key={f} onClick={() => setPosFilter(f)} style={{ ...S.btn(posFilter === f), padding: "7px 13px", fontSize: 12 }}>{t({ ALL: "الكل", GK: "حراس", DEF: "دفاع", MID: "وسط", FWD: "هجوم" }[f], f === "ALL" ? "All" : f)}</button>
+              ))}
+              <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)} style={{ background: PANEL2, color: TEXT, border: `1px solid ${LINE}`, borderRadius: 10, padding: "7px 10px", fontSize: 12, fontFamily: "inherit" }}>
+                <option value="ALL">{t("كل المنتخبات", "All teams")}</option>
+                {TEAMS.map((tm) => <option key={tm.id} value={tm.id}>{tm.flag} {ar ? tm.ar : tm.en}</option>)}
+              </select>
+            </div>
+            <div style={{ display: "grid", gap: 6 }}>
+              {PLAYERS.filter((p) => (posFilter === "ALL" || p.pos === posFilter) && (teamFilter === "ALL" || p.team === teamFilter))
+                .sort((a, b) => b.price - a.price)
+                .map((p) => {
+                  const inS = squad.includes(p.id), dead = !alive.has(p.team);
+                  return (
+                    <div key={p.id} className="mrow" style={{ ...S.card, "--tc": TEAM[p.team].c, padding: "9px 12px", display: "flex", alignItems: "center", gap: 10, opacity: dead ? 0.45 : 1 }}>
+                      <div style={{ fontSize: 20 }}>{TEAM[p.team].flag}</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 13.5 }}>{name(p)} {dead && <span style={{ color: RED, fontSize: 10 }}>({t("أُقصي", "OUT")})</span>}</div>
+                        <div style={{ fontSize: 11, color: MUTED }}>{tname(p.team)} • {t({ GK: "حارس", DEF: "مدافع", MID: "وسط", FWD: "مهاجم" }[p.pos], p.pos)} • ⭐{p.rating}</div>
+                      </div>
+                      <div style={{ fontWeight: 900, color: GOLD_SOFT, fontSize: 14 }}>{p.price.toFixed(1)}</div>
+                      {inS
+                        ? <button onClick={() => remove(p.id)} style={{ ...S.btn(false), padding: "6px 12px", color: RED }}>{t("بيع", "Sell")}</button>
+                        : <button onClick={() => add(p)} disabled={!canAdd(p)} style={{ ...S.btn(true), padding: "6px 12px", opacity: canAdd(p) ? 1 : 0.35 }}>{t("شراء", "Buy")}</button>}
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+
+        {/* ===== TOURNAMENT ===== */}
+        {tab === "matches" && (
+          <div className="rise" style={{ display: "grid", gap: 12 }}>
+            {phase === "done" && bracket?.champion && (
+              <div style={{ ...S.card, textAlign: "center", border: `1px solid ${GOLD}`, background: "linear-gradient(180deg, rgba(255,179,0,.14), transparent)" }}>
+                <div style={{ fontSize: 40 }}>🏆</div>
+                <div style={{ fontSize: 19, fontWeight: 900, color: GOLD_SOFT }}>{TEAM[bracket.champion].flag} {tname(bracket.champion)} {t("بطل العالم!", "World Champions!")}</div>
+                <div style={{ color: MUTED, fontSize: 12, marginTop: 4 }}>{t("نقاطك النهائية", "Your final score")}: <b style={{ color: TEXT }}>{userTotal}</b></div>
+              </div>
+            )}
+            {phase !== "done" && (
+              <button onClick={playRound} style={{ ...S.btn(true), padding: 14, fontSize: 15 }}>
+                ▶ {t("شغّل", "Play")} {ar ? round.ar : round.en}
+                {eliminatedInSquad.length > 0 ? ` — ⚠ ${t("لديك لاعبون مُقصَون", "you have eliminated players")}` : ""}
+              </button>
+            )}
+            {phase === "build" && <div style={{ color: MUTED, fontSize: 12, textAlign: "center" }}>{t("اعتمد فريقك من تبويب «فريقي» ثم ابدأ البطولة", "Confirm your squad in “My Team”, then start the tournament")}</div>}
+
+            {[...history].reverse().map((h, i) => {
+              const r = ROUNDS.find((x) => x.id === h.roundId);
+              return (
+                <div key={i} style={{ display: "grid", gap: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                    <div style={{ fontWeight: 800, color: GOLD, fontSize: 13 }}>◆ {ar ? r.ar : r.en}</div>
+                    <Pill color={GREEN} bg="rgba(61,214,140,.1)">{t("نقاطك", "You")}: +{h.userPts - h.cost}{h.tc ? " ⭐" : ""}{h.cost ? ` (−${h.cost})` : ""}</Pill>
+                  </div>
+                  {h.matches.map((m, j) => <MatchCard key={j} m={m} />)}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ===== STANDINGS / LEADERBOARD ===== */}
+        {tab === "rank" && (
+          <div className="rise" style={{ display: "grid", gap: 14 }}>
+            <div style={S.card}>
+              <div style={{ fontWeight: 800, color: GOLD, marginBottom: 10, fontSize: 13 }}>◆ {t("ترتيب الدوري المصغّر", "Mini-league")}</div>
+              {[{ nm: t("أنت", "You"), pts: userTotal, me: true }, ...BOTS.map((b, i) => ({ nm: ar ? b.ar : b.en, pts: botPts[i] }))]
+                .sort((a, b) => b.pts - a.pts)
+                .map((r, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 6px", borderBottom: `1px solid ${LINE}`, background: r.me ? "rgba(255,179,0,.10)" : "transparent", borderRadius: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: r.me ? 900 : 600, color: r.me ? GOLD_SOFT : TEXT }}>{i + 1}. {r.nm}</div>
+                    <div style={{ fontWeight: 800, fontSize: 13 }}>{r.pts}</div>
+                  </div>
+                ))}
+            </div>
+
+            {groupResults.length > 0 && (
+              <div style={S.card}>
+                <div style={{ fontWeight: 800, color: GOLD, marginBottom: 10, fontSize: 13 }}>◆ {t("ترتيب المجموعات", "Group standings")}</div>
+                {["A", "B", "C"].map((g) => (
+                  <div key={g} style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: MUTED, fontWeight: 700, marginBottom: 4 }}>{t("المجموعة", "Group")} {g}</div>
+                    {groupTeams(g).sort(rankCmp(standings)).map((tid, i) => (
+                      <div key={tid} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "4px 6px", color: !alive.has(tid) && roundIdx > 2 ? MUTED : TEXT }}>
+                        <span>{i + 1}. {TEAM[tid].flag} {tname(tid)}</span>
+                        <span style={{ color: MUTED }}>{standings[tid].pts} {t("ن", "pts")} • {standings[tid].gd > 0 ? "+" : ""}{standings[tid].gd}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      </div>
+
+      {/* toast */}
+      {toast && (
+        <div className="pop" style={{ position: "fixed", bottom: 20, left: 0, right: 0, margin: "0 auto", width: "fit-content", background: PANEL2, border: `1px solid ${GOLD}`, color: TEXT, padding: "10px 18px", borderRadius: 12, fontSize: 13, fontWeight: 700, zIndex: 50, boxShadow: "0 8px 24px rgba(24,32,74,.18)" }}>{toast}</div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
