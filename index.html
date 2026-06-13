@@ -746,6 +746,36 @@ function App() {
     return { played: true, base, goals, gPts, assists, aPts, cleanSheet, csPts, cardPts, total };
   }
   const displayTotal = mode === "real" ? realTotal : userTotal;
+
+  // أفضل 3 لاعبين في اللعبة من النتائج الحقيقية
+  const top3Players = useMemo(() => {
+    if (!PLAYERS || !rm) return [];
+    const scores = [];
+    for (const p of PLAYERS) {
+      let total = 0, goals = 0, assists = 0;
+      for (const r of ROUNDS) {
+        const info = realRounds[r.id];
+        if (!info?.ms?.length) continue;
+        for (const m of info.ms) {
+          if (!["FINISHED","IN_PLAY","PAUSED"].includes(m.status)) continue;
+          const a = tidOf(m.homeTeam), b = tidOf(m.awayTeam);
+          if (a !== p.team && b !== p.team) continue;
+          const hg = m.score?.fullTime?.home ?? 0, ag = m.score?.fullTime?.away ?? 0;
+          const conc = p.team === a ? ag : hg;
+          let pts = 2;
+          for (const g of m.goals || []) {
+            if (g.type === "OWN") continue;
+            if (g.scorer?.id === p.aid) { goals++; pts += goalPts(p.pos); }
+            if (g.assist?.id === p.aid) { assists++; pts += 3; }
+          }
+          if (conc === 0) pts += p.pos === "GK" || p.pos === "DEF" ? 4 : p.pos === "MID" ? 1 : 0;
+          total += pts;
+        }
+      }
+      if (total > 2) scores.push({ p, total, goals, assists });
+    }
+    return scores.sort((a, b) => b.total - a.total).slice(0, 3);
+  }, [PLAYERS, realRounds, rm]);
   const aliveNow = mode === "real" ? aliveReal : alive;
   const eliminatedNow = starters.filter((id) => !aliveNow.has(P[id]?.team));
   const fmtKO = (d) => new Date(d).toLocaleString(ar ? "ar-SA" : "en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -871,7 +901,26 @@ function App() {
     return () => clearTimeout(tmr);
   }, [user, realTotal, starters, bench, captain, formation]);
 
-  /* ---------- styles ---------- */
+  const [globalTop5, setGlobalTop5] = useState([]);
+  useEffect(() => {
+    if (!sb) return;
+    // جدول الصدارة العالمي — أفضل 5 نقاطاً من كل المستخدمين
+    const fetchTop5 = async () => {
+      const [{ data: sqs }, { data: profs }] = await Promise.all([
+        sb.from("squads").select("user_id,points").order("points", { ascending: false }).limit(10),
+        sb.from("profiles").select("id,username"),
+      ]);
+      if (!sqs) return;
+      const top = sqs
+        .filter(x => x.points != null && x.points > 0)
+        .slice(0, 5)
+        .map(x => ({ pts: x.points, name: (profs || []).find(p => p.id === x.user_id)?.username || t("لاعب","Player") }));
+      setGlobalTop5(top);
+    };
+    fetchTop5();
+    const iv = setInterval(fetchTop5, 120000);
+    return () => clearInterval(iv);
+  }, [sb]);
   const S = {
     app: { direction: ar ? "rtl" : "ltr", minHeight: "100vh", background: `linear-gradient(180deg, #141417 0%, #17171B 50%, #1A1A1F 100%)`, color: TEXT, fontFamily: ar ? "'IBM Plex Sans Arabic', sans-serif" : "'Space Grotesk','IBM Plex Sans Arabic',sans-serif", paddingBottom: 90, position: "relative", overflowX: "hidden" },
     card: { background: "rgba(10,18,48,.9)", border: `1px solid ${LINE}`, borderRadius: 14, padding: 14, boxShadow: `0 4px 20px rgba(201,169,97,.12), inset 0 1px 0 rgba(232,227,216,.045)` },
@@ -1340,7 +1389,66 @@ function App() {
           </div>
         </div>
 
-        {/* tournament rail */}
+      {/* ===== بطاقة الصدارة + أفضل اللاعبين ===== */}
+      <div style={{ padding:"0 16px 4px", maxWidth:760, margin:"0 auto", display:"grid", gap:10 }}>
+        {/* صدارة اللاعبين العالمية */}
+        {globalTop5.length > 0 && (
+          <div style={{ ...S.card, padding:"12px 14px" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <div style={{ fontWeight:900, fontSize:13 }}>🏆 {t("المتصدرون عالمياً","Global Leaderboard")}</div>
+              <Pill color={GOLD} bg={`rgba(201,169,97,.1)`}>{t("أفضل 5","Top 5")}</Pill>
+            </div>
+            {globalTop5.map((row, i) => {
+              const medals = ["🥇","🥈","🥉","4️⃣","5️⃣"];
+              const colors = [GOLD, "#C0C0C0", "#CD7F32", MUTED, MUTED];
+              const isMe = row.name === uname;
+              return (
+                <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 10px", borderRadius:9, background: isMe ? `rgba(201,169,97,.1)` : i===0 ? `rgba(201,169,97,.05)` : "transparent", border: isMe ? `1px solid rgba(201,169,97,.3)` : "1px solid transparent", marginBottom: i < globalTop5.length-1 ? 4 : 0 }}>
+                  <span style={{ fontSize:16, width:22, textAlign:"center" }}>{medals[i]}</span>
+                  <div style={{ flex:1, fontWeight: isMe ? 900 : 700, fontSize:13, color: isMe ? GOLD : TEXT }}>
+                    {row.name}{isMe ? ` ${t("(أنت)","(you)")}` : ""}
+                  </div>
+                  <div style={{ fontWeight:900, fontSize:14, color:colors[i] }}>{row.pts} <span style={{ fontSize:10, fontWeight:600, color:MUTED }}>{t("ن","p")}</span></div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* أفضل 3 لاعبين في البطولة */}
+        {top3Players.length > 0 && (
+          <div style={{ ...S.card, padding:"12px 14px" }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <div style={{ fontWeight:900, fontSize:13 }}>⚽ {t("أفضل اللاعبين في البطولة","Top Players in Tournament")}</div>
+              <Pill color={GREEN} bg="rgba(61,186,106,.1)">{t("أفضل 3","Top 3")}</Pill>
+            </div>
+            {top3Players.map(({p, total, goals, assists}, i) => {
+              const medals = ["🥇","🥈","🥉"];
+              const inMySquad = squad.includes(p.id);
+              return (
+                <div key={p.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 10px", borderRadius:9, background: inMySquad ? "rgba(61,186,106,.06)" : i===0 ? "rgba(201,169,97,.04)" : "transparent", border: inMySquad ? "1px solid rgba(61,186,106,.25)" : "1px solid transparent", marginBottom: i < 2 ? 5 : 0 }}>
+                  <span style={{ fontSize:16, width:22, textAlign:"center" }}>{medals[i]}</span>
+                  <div style={{ width:28, height:28, borderRadius:"50%", background:`${TEAM[p.team].c}22`, border:`1.5px solid ${TEAM[p.team].c}`, display:"grid", placeItems:"center", fontSize:10, fontWeight:900, color:TEXT, flexShrink:0 }}>
+                    {p.en.split(" ").filter(Boolean).slice(-1)[0]?.[0] || "?"}
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontWeight:800, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                      {name(p)} {inMySquad && <span style={{ fontSize:10, color:GREEN }}>✓ {t("فريقك","in squad")}</span>}
+                    </div>
+                    <div style={{ fontSize:10.5, color:MUTED }}>
+                      <Crest tid={p.team} s={12} /> {tname(p.team)} • {goals > 0 ? `⚽${goals} ` : ""}{assists > 0 ? `🎯${assists}` : ""}
+                    </div>
+                  </div>
+                  <div style={{ textAlign:"center", flexShrink:0 }}>
+                    <div style={{ fontWeight:900, fontSize:15, color:i===0?GOLD:i===1?"#C0C0C0":"#CD7F32" }}>{total}</div>
+                    <div style={{ fontSize:9, color:MUTED }}>{t("نقطة","pts")}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
         <div style={{ display: "flex", alignItems: "center", marginTop: 16, overflowX: "auto", paddingBottom: 4 }}>
           {ROUNDS.map((r, i) => {
             const done = i < roundIdx || phase === "done";
