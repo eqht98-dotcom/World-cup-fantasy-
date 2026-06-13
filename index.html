@@ -560,21 +560,31 @@ function App() {
   const standings = useMemo(() => computeStandings(groupResults), [groupResults]);
 
   /* ---------- الوضع الواقعي: نتائج حقيقية + Deadlines ---------- */
-  const mode = "real"; // وضع النتائج الحقيقية فقط — المحاكاة أُلغيت
+  const mode = "real";
   const [rm, setRm] = useState(null);
   const [lastSync, setLastSync] = useState(null);
+  const [tick, setTick] = useState(0); // يتحدث كل ثانية لإعادة حساب النقاط محلياً
+
   const refreshReal = () => {
     fetch(`${WORKER}/v4/competitions/WC/matches?v=1`, { cache: "no-store" })
-      .then((r) => r.json()).then((d) => { setRm(d.matches || []); setLastSync(new Date()); }).catch(() => {});
+      .then((r) => r.json())
+      .then((d) => { setRm(d.matches || []); setLastSync(new Date()); })
+      .catch(() => {});
   };
+
+  // طلب من الـ API: كل 15ث أثناء مباريات حية، كل 60ث بدونها
   useEffect(() => {
     refreshReal();
-    // تحديث كل 30 ثانية أثناء وجود مباريات حية، وكل دقيقة بدونها
-    const tick = () => {
+    const iv = setInterval(() => {
       const hasLive = rm && rm.some(m => ["IN_PLAY","PAUSED"].includes(m.status));
-      return hasLive ? 30000 : 60000;
-    };
-    let iv = setInterval(() => { refreshReal(); clearInterval(iv); iv = setInterval(refreshReal, tick()); }, tick());
+      refreshReal();
+    }, 15000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // عداد كل ثانية لإعادة حساب النقاط محلياً بدون API
+  useEffect(() => {
+    const iv = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(iv);
   }, []);
   const [rs, setRs] = useState(null);
@@ -601,7 +611,7 @@ function App() {
       info.ko = r.ko;
     }
     return out;
-  }, [rm]);
+  }, [rm, tick]); // tick → يُعاد الحساب كل ثانية
 
   // بداية شخصية: نقاط كل مستخدم تُحتسب من المباريات التالية لوقت إنشاء حسابه
   const userStart = user?.created_at ? new Date(user.created_at).getTime() : 0;
@@ -616,7 +626,7 @@ function App() {
     const now = Date.now();
     for (const r of ROUNDS) { const i = realRounds[r.id]; const d = pDeadline(i); if (i?.ms?.length && d != null && now < d) return { ...r, ...i, deadline: d }; }
     return null;
-  }, [realRounds, userStart]);
+  }, [realRounds, userStart, tick]);
 
   // المنتخبات الحية واقعياً: المشاركون في آخر دور أُعلنت مبارياته
   const aliveReal = useMemo(() => {
@@ -710,7 +720,7 @@ function App() {
     }
     return total;
   }
-  const realTotal = useMemo(() => ROUNDS.reduce((sum, r) => sum + (realRoundPoints(r.id) || 0), 0), [snaps, realRounds, byAid, userStart]);
+  const realTotal = useMemo(() => ROUNDS.reduce((sum, r) => sum + (realRoundPoints(r.id) || 0), 0), [snaps, realRounds, byAid, userStart, tick]);
 
   // نقاط لاعب بعينه في جولة محددة مع تفصيل
   function playerRoundDetail(pid, rid) {
@@ -775,11 +785,11 @@ function App() {
       if (total > 2) scores.push({ p, total, goals, assists });
     }
     return scores.sort((a, b) => b.total - a.total).slice(0, 3);
-  }, [PLAYERS, realRounds, rm]);
+  }, [PLAYERS, realRounds, rm, tick]);
   const aliveNow = mode === "real" ? aliveReal : alive;
   const eliminatedNow = starters.filter((id) => !aliveNow.has(P[id]?.team));
   const fmtKO = (d) => new Date(d).toLocaleString(ar ? "ar-SA" : "en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-  const hoursLeft = (ts) => Math.max(0, Math.round((ts - Date.now()) / 3600000 * 10) / 10);
+  const hoursLeft = (ts) => Math.max(0, Math.round((ts - Date.now()) / 3600000 * 10) / 10); // tick يجعلها تتحدث تلقائياً
 
   /* ---------- الحسابات والقروبات ---------- */
   useEffect(() => {
@@ -1381,7 +1391,11 @@ function App() {
             <div style={{ fontSize: 22, fontWeight: 800, lineHeight: 1.2 }}><span className="gradText">{t("فانتازي المونديال", "Mondial Fantasy")}</span> <span style={{ color: GOLD }}>⬡</span></div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <div style={{ textAlign: "center", background: "rgba(201,169,97,.08)", border: `1px solid rgba(201,169,97,.25)`, borderRadius: 10, padding: "4px 12px", boxShadow: `0 0 15px rgba(201,169,97,.1)` }}>
+            <div style={{ textAlign: "center", background: "rgba(201,169,97,.08)", border: `1px solid rgba(201,169,97,.25)`, borderRadius: 10, padding: "4px 12px", boxShadow: `0 0 15px rgba(201,169,97,.1)`, position:"relative" }}>
+              {/* نقطة حمراء صغيرة أثناء المباريات الحية */}
+              {rm && rm.some(m => ["IN_PLAY","PAUSED"].includes(m.status)) && (
+                <div style={{ position:"absolute", top:-3, insetInlineEnd:-3, width:8, height:8, borderRadius:"50%", background:C26R, animation:"capGlow 1s ease-in-out infinite" }} />
+              )}
               <div key={displayTotal} className="pop" style={{ fontSize: 17, fontWeight: 900, color: GOLD_SOFT }}>{displayTotal}</div>
               <div style={{ fontSize: 9, color: MUTED }}>{t("نقاطك", "Your pts")}</div>
             </div>
@@ -1605,18 +1619,7 @@ function App() {
         {tab === "matches" && (
           <div className="rise" style={{ display: "grid", gap: 12 }}>
             {mode === "real" && (<>
-              {/* بطاقة حالة التحديث */}
-              <div style={{ ...S.card, display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 14px" }}>
-                <div>
-                  <div style={{ fontWeight:800, fontSize:12 }}>
-                    {rm && rm.some(m => ["IN_PLAY","PAUSED"].includes(m.status))
-                      ? <span style={{ color:C26R }}>⚡ {t("مباراة حية — يتحدث كل 30ث","Live match — updates every 30s")}</span>
-                      : <span style={{ color:GREEN }}>● {t("متصل — يتحدث كل دقيقة","Connected — updates every min")}</span>}
-                  </div>
-                  <div style={{ fontSize:10.5, color:MUTED }}>{lastSync ? t("آخر تحديث: ","Last sync: ") + lastSync.toLocaleTimeString(ar?"ar-SA":"en-GB") : t("جاري المزامنة…","Syncing…")}</div>
-                </div>
-                <button onClick={refreshReal} style={{ ...S.btn(false), padding:"7px 12px", fontSize:11 }}>🔄</button>
-              </div>
+              {/* مؤشر المزامنة — نقطة صغيرة في الـ header فقط، لا بطاقة */}
               {nextRound && (
                 <div style={{ ...S.card, border: `1.5px solid ${C26R}`, background: "rgba(201,169,97,.05)" }}>
                   <div style={{ fontWeight: 900, fontSize: 13 }}>⏰ {t("إغلاق التسجيل", "Deadline")} — {ar ? nextRound.ar : nextRound.en}</div>
@@ -1853,7 +1856,7 @@ function App() {
           return s + v;
         }, 0);
         return (
-          <div style={{ position:"fixed", inset:0, zIndex:100, background:"rgba(0,0,0,.75)", display:"grid", placeItems:"center", padding:16 }} onClick={() => setSelectedPlayer(null)}>
+          <div key={`modal-${selectedPlayer}-${tick}`} style={{ position:"fixed", inset:0, zIndex:100, background:"rgba(0,0,0,.75)", display:"grid", placeItems:"center", padding:16 }} onClick={() => setSelectedPlayer(null)}>
             <div style={{ ...S.card, width:"100%", maxWidth:400, maxHeight:"85vh", overflowY:"auto", borderColor: tc }} onClick={e => e.stopPropagation()}>
               {/* header */}
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14 }}>
