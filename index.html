@@ -271,7 +271,7 @@ const poisson = (lam) => { const L = Math.exp(-lam); let k = 0, p = 1; do { k++;
 const wPick = (arr, wf) => { const ws = arr.map(wf); const s = ws.reduce((a, b) => a + b, 0); let r = Math.random() * s; for (let i = 0; i < arr.length; i++) { r -= ws[i]; if (r <= 0) return arr[i]; } return arr[arr.length - 1]; };
 const goalW = (p) => ({ FWD: 5, MID: 3, DEF: 0.8, GK: 0.05 }[p.pos] * p.rating);
 const assistW = (p) => ({ FWD: 3, MID: 4, DEF: 1, GK: 0.1 }[p.pos] * p.rating);
-const goalPts = (pos) => ({ GK: 6, DEF: 6, MID: 5, FWD: 4 }[pos]);
+const goalPts = (pos) => ({ GK: 10, DEF: 6, MID: 5, FWD: 4 }[pos] ?? 4);
 
 function simMatch(players, aId, bId, knockout) {
   const a = TEAM[aId], b = TEAM[bId];
@@ -677,34 +677,72 @@ function App() {
     if (ch) try { localStorage.setItem(SNAP_KEY + "_pend", JSON.stringify(pend)); } catch {}
   }, [starters, bench, captain, formation, PLAYERS, realRounds, snaps, SNAP_KEY]);
 
-  // حساب نقاط جولة من النتائج الفعلية
+  // حساب نقاط جولة من النتائج الفعلية — نظام النقاط الرسمي الكامل
   function realRoundPoints(rid) {
     const snap = snaps[rid], info = realRounds[rid];
     if (!snap || !info?.ms?.length) return null;
-    const teamPlayed = new Set(), conceded = {}, goals = {}, assists = {}, cards = {};
+    const teamPlayed = new Set();
+    const conceded = {};   // عدد الأهداف المستقبَلة لكل منتخب
+    const goals = {};      // أهداف لكل aid
+    const assists = {};    // تمريرات حاسمة لكل aid
+    const ownGoals = {};   // أهداف عكسية لكل aid
+    const cards = {};      // بطاقات (-1 صفراء، -3 حمراء)
+    const penMissed = {};  // ضربات جزاء ضائعة
+
     for (const m of info.ms) {
-      if (!["FINISHED", "IN_PLAY", "PAUSED"].includes(m.status)) continue;
-      if (userStart && new Date(m.utcDate).getTime() < userStart) continue; // ما قبل تسجيل المستخدم لا يُحتسب له
+      if (!["FINISHED","IN_PLAY","PAUSED"].includes(m.status)) continue;
+      if (userStart && new Date(m.utcDate).getTime() < userStart) continue;
       const a = tidOf(m.homeTeam), b = tidOf(m.awayTeam);
       const hg = m.score?.fullTime?.home ?? 0, ag = m.score?.fullTime?.away ?? 0;
-      if (a) { teamPlayed.add(a); conceded[a] = ag; }
-      if (b) { teamPlayed.add(b); conceded[b] = hg; }
+      if (a) { teamPlayed.add(a); conceded[a] = (conceded[a] || 0) + ag; }
+      if (b) { teamPlayed.add(b); conceded[b] = (conceded[b] || 0) + hg; }
       for (const g of m.goals || []) {
-        if (g.type === "OWN") continue;
-        if (g.scorer?.id) goals[g.scorer.id] = (goals[g.scorer.id] || 0) + 1;
-        if (g.assist?.id) assists[g.assist.id] = (assists[g.assist.id] || 0) + 1;
+        if (g.type === "OWN") {
+          if (g.scorer?.id) ownGoals[g.scorer.id] = (ownGoals[g.scorer.id] || 0) + 1;
+        } else {
+          if (g.scorer?.id) goals[g.scorer.id] = (goals[g.scorer.id] || 0) + 1;
+          if (g.assist?.id) assists[g.assist.id] = (assists[g.assist.id] || 0) + 1;
+        }
       }
       for (const bk of m.bookings || []) {
-        if (bk.player?.id) cards[bk.player.id] = (cards[bk.player.id] || 0) + (bk.card === "RED" || bk.card === "RED_CARD" ? 3 : 1);
+        if (bk.player?.id) {
+          const isRed = bk.card === "RED" || bk.card === "RED_CARD";
+          cards[bk.player.id] = (cards[bk.player.id] || 0) + (isRed ? 3 : 1);
+        }
+      }
+      // ضربات الجزاء الضائعة (penaltyMissed في بعض نسخ API)
+      for (const pen of m.penaltyMisses || m.missedPenalties || []) {
+        if (pen.player?.id) penMissed[pen.player.id] = (penMissed[pen.player.id] || 0) + 1;
       }
     }
+
     const ptsOf = (aid) => {
       const p = byAid[aid];
       if (!p || !teamPlayed.has(p.team)) return null;
-      let pp = 2 + (goals[aid] || 0) * goalPts(p.pos) + (assists[aid] || 0) * 3 - (cards[aid] || 0);
-      if (conceded[p.team] === 0) pp += p.pos === "GK" || p.pos === "DEF" ? 4 : p.pos === "MID" ? 1 : 0;
+      const conc = conceded[p.team] || 0;
+      // مشاركة: 2 ثابتة
+      let pp = 2;
+      // أهداف
+      pp += (goals[aid] || 0) * goalPts(p.pos);
+      // تمريرات حاسمة
+      pp += (assists[aid] || 0) * 3;
+      // أهداف عكسية
+      pp -= (ownGoals[aid] || 0) * 2;
+      // بطاقات
+      pp -= (cards[aid] || 0);
+      // ضربات جزاء ضائعة
+      pp -= (penMissed[aid] || 0) * 2;
+      // شباك نظيفة (نفترض اللاعب لعب كاملاً — أفضل تقريب بدون بيانات الدقائق)
+      if (conc === 0) {
+        pp += p.pos === "GK" || p.pos === "DEF" ? 4 : p.pos === "MID" ? 1 : 0;
+      }
+      // خصم الأهداف المستقبَلة: كل هدفين = -1 (حراس ومدافعون فقط)
+      if (p.pos === "GK" || p.pos === "DEF") {
+        pp -= Math.floor(conc / 2);
+      }
       return pp;
     };
+
     let total = 0;
     const usedSubs = new Set();
     for (const aid of snap.st) {
@@ -722,13 +760,19 @@ function App() {
   }
   const realTotal = useMemo(() => ROUNDS.reduce((sum, r) => sum + (realRoundPoints(r.id) || 0), 0), [snaps, realRounds, byAid, userStart, tick]);
 
-  // نقاط لاعب بعينه في جولة محددة مع تفصيل
+  // نقاط لاعب بعينه في جولة محددة مع تفصيل كامل
   function playerRoundDetail(pid, rid) {
     const p = P[pid]; if (!p) return null;
     const info = realRounds[rid];
     if (!info?.ms?.length) return null;
     const aid = p.aid;
-    let played = false, goals = 0, assists = 0, cardPts = 0, cleanSheet = false;
+    let played = false;
+    let goals = 0, assists = 0, ownGoals = 0;
+    let yellowCards = 0, redCards = 0;
+    let penMissed = 0;
+    let conceded = 0;
+    let cleanSheet = false;
+
     for (const m of info.ms) {
       if (!["FINISHED","IN_PLAY","PAUSED"].includes(m.status)) continue;
       const a = tidOf(m.homeTeam), b = tidOf(m.awayTeam);
@@ -736,24 +780,49 @@ function App() {
       played = true;
       const hg = m.score?.fullTime?.home ?? 0, ag = m.score?.fullTime?.away ?? 0;
       const conc = p.team === a ? ag : hg;
+      conceded += conc;
       if (conc === 0) cleanSheet = true;
       for (const g of m.goals || []) {
-        if (g.type === "OWN") continue;
-        if (g.scorer?.id === aid) goals++;
-        if (g.assist?.id === aid) assists++;
+        if (g.type === "OWN") {
+          if (g.scorer?.id === aid) ownGoals++;
+        } else {
+          if (g.scorer?.id === aid) goals++;
+          if (g.assist?.id === aid) assists++;
+        }
       }
       for (const bk of m.bookings || []) {
-        if (bk.player?.id === aid) cardPts += (bk.card === "RED" || bk.card === "RED_CARD") ? 3 : 1;
+        if (bk.player?.id !== aid) continue;
+        if (bk.card === "RED" || bk.card === "RED_CARD") redCards++;
+        else yellowCards++;
+      }
+      for (const pen of m.penaltyMisses || m.missedPenalties || []) {
+        if (pen.player?.id === aid) penMissed++;
       }
     }
     if (!played) return { played: false };
-    const gPts = goals * goalPts(p.pos);
-    const aPts = assists * 3;
-    const csPts = cleanSheet ? (p.pos === "GK" || p.pos === "DEF" ? 4 : p.pos === "MID" ? 1 : 0) : 0;
-    const base = 2;
-    const total = base + gPts + aPts + csPts - cardPts;
-    const isCap = Object.values(snaps).some(sn => sn.cap === aid);
-    return { played: true, base, goals, gPts, assists, aPts, cleanSheet, csPts, cardPts, total };
+
+    const base    = 2;
+    const gPts    = goals * goalPts(p.pos);
+    const aPts    = assists * 3;
+    const ogPts   = ownGoals * -2;
+    const csPts   = cleanSheet ? (p.pos === "GK" || p.pos === "DEF" ? 4 : p.pos === "MID" ? 1 : 0) : 0;
+    const concPts = (p.pos === "GK" || p.pos === "DEF") ? -Math.floor(conceded / 2) : 0;
+    const ycPts   = yellowCards * -1;
+    const rcPts   = redCards * -3;
+    const pmPts   = penMissed * -2;
+    const total   = base + gPts + aPts + ogPts + csPts + concPts + ycPts + rcPts + pmPts;
+
+    return {
+      played: true,
+      base, goals, gPts, assists, aPts,
+      ownGoals, ogPts,
+      cleanSheet, csPts,
+      conceded, concPts,
+      yellowCards, ycPts,
+      redCards, rcPts,
+      penMissed, pmPts,
+      total
+    };
   }
   const displayTotal = mode === "real" ? realTotal : userTotal;
 
@@ -764,23 +833,11 @@ function App() {
     for (const p of PLAYERS) {
       let total = 0, goals = 0, assists = 0;
       for (const r of ROUNDS) {
-        const info = realRounds[r.id];
-        if (!info?.ms?.length) continue;
-        for (const m of info.ms) {
-          if (!["FINISHED","IN_PLAY","PAUSED"].includes(m.status)) continue;
-          const a = tidOf(m.homeTeam), b = tidOf(m.awayTeam);
-          if (a !== p.team && b !== p.team) continue;
-          const hg = m.score?.fullTime?.home ?? 0, ag = m.score?.fullTime?.away ?? 0;
-          const conc = p.team === a ? ag : hg;
-          let pts = 2;
-          for (const g of m.goals || []) {
-            if (g.type === "OWN") continue;
-            if (g.scorer?.id === p.aid) { goals++; pts += goalPts(p.pos); }
-            if (g.assist?.id === p.aid) { assists++; pts += 3; }
-          }
-          if (conc === 0) pts += p.pos === "GK" || p.pos === "DEF" ? 4 : p.pos === "MID" ? 1 : 0;
-          total += pts;
-        }
+        const d = playerRoundDetail(p.id, r.id);
+        if (!d?.played) continue;
+        total += d.total;
+        goals += d.goals;
+        assists += d.assists;
       }
       if (total > 2) scores.push({ p, total, goals, assists });
     }
@@ -1890,13 +1947,17 @@ function App() {
                       </div>
                     </div>
                     {d.played && (
-                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"4px 10px", fontSize:11.5, color:MUTED }}>
-                        <span>⚡ {t("لعب","Played")} <span style={{ color:TEXT, fontWeight:700 }}>+{d.base}{t("ن","p")}</span></span>
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"5px 12px", fontSize:11.5, color:MUTED }}>
+                        <span>⚡ {t("مشاركة","Played")} <span style={{ color:TEXT, fontWeight:700 }}>+{d.base}{t("ن","p")}</span></span>
                         {d.goals > 0 && <span>⚽ {d.goals} {t("هدف","goal")} <span style={{ color:GREEN, fontWeight:700 }}>+{d.gPts}{t("ن","p")}</span></span>}
                         {d.assists > 0 && <span>🎯 {d.assists} {t("تمريرة","assist")} <span style={{ color:"#7BC67E", fontWeight:700 }}>+{d.aPts}{t("ن","p")}</span></span>}
-                        {d.cleanSheet && d.csPts > 0 && <span>🔒 {t("شباك نظيفة","CS")} <span style={{ color:"#5BC4FF", fontWeight:700 }}>+{d.csPts}{t("ن","p")}</span></span>}
-                        {d.cardPts > 0 && <span>🟨 {t("بطاقة","Card")} <span style={{ color:RED, fontWeight:700 }}>-{d.cardPts}{t("ن","p")}</span></span>}
-                        {capBonus && <span>© {t("مضاعف الكابتن","Cap ×2")} <span style={{ color:GOLD, fontWeight:700 }}>×2</span></span>}
+                        {d.cleanSheet && d.csPts > 0 && <span>🔒 {t("شباك نظيفة","Clean Sheet")} <span style={{ color:"#5BC4FF", fontWeight:700 }}>+{d.csPts}{t("ن","p")}</span></span>}
+                        {d.conceded > 0 && d.concPts < 0 && <span>🥅 {t("أهداف مستقبَلة","Goals conceded")} ({d.conceded}) <span style={{ color:RED, fontWeight:700 }}>{d.concPts}{t("ن","p")}</span></span>}
+                        {d.ownGoals > 0 && <span>🔴 {t("هدف عكسي","Own Goal")} <span style={{ color:RED, fontWeight:700 }}>{d.ogPts}{t("ن","p")}</span></span>}
+                        {d.yellowCards > 0 && <span>🟨 {t("بطاقة صفراء","Yellow Card")} <span style={{ color:"#FFD700", fontWeight:700 }}>{d.ycPts}{t("ن","p")}</span></span>}
+                        {d.redCards > 0 && <span>🟥 {t("بطاقة حمراء","Red Card")} <span style={{ color:RED, fontWeight:700 }}>{d.rcPts}{t("ن","p")}</span></span>}
+                        {d.penMissed > 0 && <span>❌ {t("جزاء ضائع","Pen Missed")} <span style={{ color:RED, fontWeight:700 }}>{d.pmPts}{t("ن","p")}</span></span>}
+                        {capBonus && <span>© {t("مضاعف الكابتن","Captain ×2")} <span style={{ color:GOLD, fontWeight:700 }}>×2</span></span>}
                       </div>
                     )}
                   </div>
