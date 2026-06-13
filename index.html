@@ -395,6 +395,9 @@ function App() {
   const [posFilter, setPosFilter] = useState("ALL");
   const [teamFilter, setTeamFilter] = useState("ALL");
   const [q, setQ] = useState("");
+  const [priceMin, setPriceMin] = useState("");
+  const [priceMax, setPriceMax] = useState("");
+  const [selectedPlayer, setSelectedPlayer] = useState(null); // id للاعب المختار لعرض نقاطه
   const [toast, setToast] = useState(null);
 
   const spent = squad.reduce((s, id) => s + P[id].price, 0);
@@ -564,7 +567,16 @@ function App() {
     fetch(`${WORKER}/v4/competitions/WC/matches?v=1`, { cache: "no-store" })
       .then((r) => r.json()).then((d) => { setRm(d.matches || []); setLastSync(new Date()); }).catch(() => {});
   };
-  useEffect(() => { refreshReal(); const iv = setInterval(refreshReal, 60000); return () => clearInterval(iv); }, []);
+  useEffect(() => {
+    refreshReal();
+    // تحديث كل 30 ثانية أثناء وجود مباريات حية، وكل دقيقة بدونها
+    const tick = () => {
+      const hasLive = rm && rm.some(m => ["IN_PLAY","PAUSED"].includes(m.status));
+      return hasLive ? 30000 : 60000;
+    };
+    let iv = setInterval(() => { refreshReal(); clearInterval(iv); iv = setInterval(refreshReal, tick()); }, tick());
+    return () => clearInterval(iv);
+  }, []);
   const [rs, setRs] = useState(null);
   useEffect(() => { const f = () => fetch(`${WORKER}/v4/competitions/WC/standings?v=1`, { cache: "no-store" }).then((r) => r.json()).then((d) => setRs(d.standings || [])).catch(() => {}); f(); const iv = setInterval(f, 120000); return () => clearInterval(iv); }, []); // تحديث تلقائي بالخلفية كل دقيقة
 
@@ -699,6 +711,40 @@ function App() {
     return total;
   }
   const realTotal = useMemo(() => ROUNDS.reduce((sum, r) => sum + (realRoundPoints(r.id) || 0), 0), [snaps, realRounds, byAid, userStart]);
+
+  // نقاط لاعب بعينه في جولة محددة مع تفصيل
+  function playerRoundDetail(pid, rid) {
+    const p = P[pid]; if (!p) return null;
+    const info = realRounds[rid];
+    if (!info?.ms?.length) return null;
+    const aid = p.aid;
+    let played = false, goals = 0, assists = 0, cardPts = 0, cleanSheet = false;
+    for (const m of info.ms) {
+      if (!["FINISHED","IN_PLAY","PAUSED"].includes(m.status)) continue;
+      const a = tidOf(m.homeTeam), b = tidOf(m.awayTeam);
+      if (a !== p.team && b !== p.team) continue;
+      played = true;
+      const hg = m.score?.fullTime?.home ?? 0, ag = m.score?.fullTime?.away ?? 0;
+      const conc = p.team === a ? ag : hg;
+      if (conc === 0) cleanSheet = true;
+      for (const g of m.goals || []) {
+        if (g.type === "OWN") continue;
+        if (g.scorer?.id === aid) goals++;
+        if (g.assist?.id === aid) assists++;
+      }
+      for (const bk of m.bookings || []) {
+        if (bk.player?.id === aid) cardPts += (bk.card === "RED" || bk.card === "RED_CARD") ? 3 : 1;
+      }
+    }
+    if (!played) return { played: false };
+    const gPts = goals * goalPts(p.pos);
+    const aPts = assists * 3;
+    const csPts = cleanSheet ? (p.pos === "GK" || p.pos === "DEF" ? 4 : p.pos === "MID" ? 1 : 0) : 0;
+    const base = 2;
+    const total = base + gPts + aPts + csPts - cardPts;
+    const isCap = Object.values(snaps).some(sn => sn.cap === aid);
+    return { played: true, base, goals, gPts, assists, aPts, cleanSheet, csPts, cardPts, total };
+  }
   const displayTotal = mode === "real" ? realTotal : userTotal;
   const aliveNow = mode === "real" ? aliveReal : alive;
   const eliminatedNow = starters.filter((id) => !aliveNow.has(P[id]?.team));
@@ -839,8 +885,19 @@ function App() {
     const tc = TEAM[p.team].c;
     const dead = !aliveNow.has(p.team);
     const lp = lastRound?.pts?.[id];
+    // إجمالي نقاط اللاعب من كل الجولات
+    const totalPts = ROUNDS.reduce((s, r) => {
+      const snap = snaps[r.id]; if (!snap) return s;
+      const aid = p.aid; if (!aid) return s;
+      const d = playerRoundDetail(id, r.id);
+      if (!d?.played) return s;
+      let v = d.total;
+      if (snap.cap === aid) v *= 2;
+      return s + v;
+    }, 0);
     return (
-      <div className="chipCard" style={{ "--tc": tc, width: 78, textAlign: "center", cursor: "pointer", position: "relative", opacity: dead ? 0.45 : 1 }} onClick={() => phase !== "done" && starters.includes(id) && setCaptain(id)}>
+      <div className="chipCard" style={{ "--tc": tc, width: 78, textAlign: "center", cursor: "pointer", position: "relative", opacity: dead ? 0.45 : 1 }}
+        onClick={() => setSelectedPlayer(id)}>
         <div style={{ position: "relative", width: 32, margin: "0 auto 2px" }}>
           <div style={{ width: 32, height: 32, borderRadius: "50%", background: `${TEAM[p.team].c}26`, border: `2px solid ${TEAM[p.team].c}`, display: "grid", placeItems: "center", fontSize: 11, fontWeight: 900, color: TEXT }}>{p.en.split(" ").filter(Boolean).slice(-2).map((w) => w[0]).join("").toUpperCase()}</div>
           <div style={{ position: "absolute", bottom: -3, insetInlineEnd: -7 }}><Crest tid={p.team} s={14} /></div>
@@ -848,8 +905,8 @@ function App() {
         <div className={`chipBody ${captain === id ? "cap" : ""}`} style={{ background: captain === id ? GOLD : "rgba(10,18,48,.92)", color: captain === id ? "#1A1408" : TEXT, borderRadius: 8, padding: "3px 4px", fontSize: 10.5, fontWeight: 800, border: `1.5px solid ${captain === id ? GOLD : tc + "88"}`, lineHeight: 1.25 }}>
           {name(p)}{captain === id ? " ©" : ""}
           <div style={{ fontWeight: 600, color: captain === id ? "#3A2D10" : MUTED, fontSize: 9.5 }}>
-            {p.price.toFixed(1)} {lp != null ? `• ${id === captain ? lp * (lastRound.tc ? 3 : 2) : lp}${t("ن", "p")}` : ""}
-            {dead ? ` • ${t("أُقصي", "OUT")}` : ""}
+            {totalPts > 0 ? <span style={{ color: GOLD_SOFT }}>{totalPts}{t("ن","p")}</span> : p.price.toFixed(1)}
+            {dead ? ` • ${t("أُقصي","OUT")}` : ""}
           </div>
         </div>
         {phase !== "done" && (
@@ -1383,6 +1440,14 @@ function App() {
         {tab === "market" && (
           <div className="rise" style={{ display: "grid", gap: 10 }}>
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("ابحث عن لاعب…", "Search player…")} style={{ background: "rgba(232,227,216,.05)", color: TEXT, border: `1.5px solid ${LINE}`, borderRadius: 10, padding: "10px 14px", fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+            {/* فلتر السعر */}
+            <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+              <span style={{ fontSize:12, color:MUTED, flexShrink:0 }}>{t("السعر:","Price:")}</span>
+              <input value={priceMin} onChange={e => setPriceMin(e.target.value)} placeholder={t("من","Min")} type="number" min="0" max="20" step="0.5" style={{ background:"rgba(232,227,216,.05)", color:TEXT, border:`1.5px solid ${LINE}`, borderRadius:10, padding:"8px 10px", fontSize:12, fontFamily:"inherit", outline:"none", width:70, textAlign:"center" }} />
+              <span style={{ color:MUTED, fontSize:13 }}>–</span>
+              <input value={priceMax} onChange={e => setPriceMax(e.target.value)} placeholder={t("إلى","Max")} type="number" min="0" max="20" step="0.5" style={{ background:"rgba(232,227,216,.05)", color:TEXT, border:`1.5px solid ${LINE}`, borderRadius:10, padding:"8px 10px", fontSize:12, fontFamily:"inherit", outline:"none", width:70, textAlign:"center" }} />
+              {(priceMin || priceMax) && <button onClick={() => { setPriceMin(""); setPriceMax(""); }} style={{ ...S.btn(false), padding:"7px 10px", fontSize:11, flexShrink:0 }}>✕</button>}
+            </div>
             <div style={{ display: "flex", gap: 6, overflowX: "auto" }}>
               {["ALL", "GK", "DEF", "MID", "FWD"].map((f) => (
                 <button key={f} onClick={() => setPosFilter(f)} style={{ ...S.btn(posFilter === f), padding: "7px 13px", fontSize: 12 }}>{t({ ALL: "الكل", GK: "حراس", DEF: "دفاع", MID: "وسط", FWD: "هجوم" }[f], f === "ALL" ? "All" : f)}</button>
@@ -1397,7 +1462,14 @@ function App() {
               </select>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              {PLAYERS.filter((p) => (posFilter === "ALL" || p.pos === posFilter) && (teamFilter === "ALL" || p.team === teamFilter) && (!q.trim() || p.en.toLowerCase().includes(q.trim().toLowerCase()) || p.ar.includes(q.trim()) || TEAM[p.team].ar.includes(q.trim()) || TEAM[p.team].en.toLowerCase().includes(q.trim().toLowerCase())))
+              {PLAYERS.filter((p) => {
+                if (posFilter !== "ALL" && p.pos !== posFilter) return false;
+                if (teamFilter !== "ALL" && p.team !== teamFilter) return false;
+                if (q.trim() && !p.en.toLowerCase().includes(q.trim().toLowerCase()) && !p.ar.includes(q.trim()) && !TEAM[p.team].ar.includes(q.trim()) && !TEAM[p.team].en.toLowerCase().includes(q.trim().toLowerCase())) return false;
+                if (priceMin !== "" && p.price < parseFloat(priceMin)) return false;
+                if (priceMax !== "" && p.price > parseFloat(priceMax)) return false;
+                return true;
+              })
                 .sort((a, b) => b.price - a.price)
                 .slice(0, 60)
                 .map((p) => {
@@ -1425,6 +1497,18 @@ function App() {
         {tab === "matches" && (
           <div className="rise" style={{ display: "grid", gap: 12 }}>
             {mode === "real" && (<>
+              {/* بطاقة حالة التحديث */}
+              <div style={{ ...S.card, display:"flex", justifyContent:"space-between", alignItems:"center", padding:"10px 14px" }}>
+                <div>
+                  <div style={{ fontWeight:800, fontSize:12 }}>
+                    {rm && rm.some(m => ["IN_PLAY","PAUSED"].includes(m.status))
+                      ? <span style={{ color:C26R }}>⚡ {t("مباراة حية — يتحدث كل 30ث","Live match — updates every 30s")}</span>
+                      : <span style={{ color:GREEN }}>● {t("متصل — يتحدث كل دقيقة","Connected — updates every min")}</span>}
+                  </div>
+                  <div style={{ fontSize:10.5, color:MUTED }}>{lastSync ? t("آخر تحديث: ","Last sync: ") + lastSync.toLocaleTimeString(ar?"ar-SA":"en-GB") : t("جاري المزامنة…","Syncing…")}</div>
+                </div>
+                <button onClick={refreshReal} style={{ ...S.btn(false), padding:"7px 12px", fontSize:11 }}>🔄</button>
+              </div>
               {nextRound && (
                 <div style={{ ...S.card, border: `1.5px solid ${C26R}`, background: "rgba(201,169,97,.05)" }}>
                   <div style={{ fontWeight: 900, fontSize: 13 }}>⏰ {t("إغلاق التسجيل", "Deadline")} — {ar ? nextRound.ar : nextRound.en}</div>
@@ -1643,6 +1727,76 @@ function App() {
       </div>
 
       {/* toast */}
+      {/* ===== MODAL نقاط اللاعب ===== */}
+      {selectedPlayer != null && (() => {
+        const p = P[selectedPlayer]; if (!p) return null;
+        const tc = TEAM[p.team].c;
+        const isCap = captain === selectedPlayer;
+        const rows = ROUNDS.map(r => {
+          const snap = snaps[r.id];
+          const d = playerRoundDetail(selectedPlayer, r.id);
+          const inSnap = snap && (snap.st || []).concat(snap.bn || []).includes(p.aid);
+          return { r, d, snap, inSnap };
+        }).filter(x => x.d);
+        const grandTotal = rows.reduce((s, {r, d, snap}) => {
+          if (!d?.played) return s;
+          let v = d.total;
+          if (snap?.cap === p.aid) v *= 2;
+          return s + v;
+        }, 0);
+        return (
+          <div style={{ position:"fixed", inset:0, zIndex:100, background:"rgba(0,0,0,.75)", display:"grid", placeItems:"center", padding:16 }} onClick={() => setSelectedPlayer(null)}>
+            <div style={{ ...S.card, width:"100%", maxWidth:400, maxHeight:"85vh", overflowY:"auto", borderColor: tc }} onClick={e => e.stopPropagation()}>
+              {/* header */}
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:14 }}>
+                <div>
+                  <div style={{ fontWeight:900, fontSize:16 }}>{name(p)} {isCap ? <span style={{ color:GOLD }}>©</span> : ""}</div>
+                  <div style={{ fontSize:12, color:MUTED }}>{tname(p.team)} • {t({GK:"حارس",DEF:"مدافع",MID:"وسط",FWD:"مهاجم"}[p.pos], p.pos)} • {p.price.toFixed(1)}M</div>
+                </div>
+                <div style={{ textAlign:"center" }}>
+                  <div style={{ fontSize:26, fontWeight:900, color:GOLD }}>{grandTotal}</div>
+                  <div style={{ fontSize:10, color:MUTED }}>{t("إجمالي","Total")}</div>
+                </div>
+              </div>
+              {/* زر الكابتن */}
+              {starters.includes(selectedPlayer) && phase !== "done" && (
+                <button onClick={() => { setCaptain(selectedPlayer); setSelectedPlayer(null); }} style={{ ...S.btn(isCap), width:"100%", marginBottom:12, fontSize:12 }}>
+                  {isCap ? `✓ ${t("كابتن حالي","Current captain")}` : `★ ${t("اختر كابتناً","Set as captain")}`}
+                </button>
+              )}
+              {/* تفصيل كل جولة */}
+              {rows.length === 0 ? (
+                <div style={{ color:MUTED, fontSize:13, textAlign:"center", padding:"20px 0" }}>{t("لا توجد بيانات جولات بعد","No round data yet")}</div>
+              ) : rows.map(({r, d, snap}) => {
+                const capBonus = snap?.cap === p.aid;
+                const finalPts = d?.played ? (d.total * (capBonus ? 2 : 1)) : null;
+                return (
+                  <div key={r.id} style={{ background:"rgba(255,255,255,.03)", border:`1px solid ${LINE}`, borderRadius:10, padding:"10px 12px", marginBottom:8 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
+                      <div style={{ fontWeight:800, fontSize:13 }}>{ar ? r.ar : r.en}</div>
+                      <div style={{ fontWeight:900, fontSize:15, color: finalPts > 0 ? GOLD : finalPts === 0 ? MUTED : RED }}>
+                        {finalPts != null ? `${finalPts}${t("ن","p")}` : t("لم يلعب","DNS")}
+                      </div>
+                    </div>
+                    {d.played && (
+                      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"4px 10px", fontSize:11.5, color:MUTED }}>
+                        <span>⚡ {t("لعب","Played")} <span style={{ color:TEXT, fontWeight:700 }}>+{d.base}{t("ن","p")}</span></span>
+                        {d.goals > 0 && <span>⚽ {d.goals} {t("هدف","goal")} <span style={{ color:GREEN, fontWeight:700 }}>+{d.gPts}{t("ن","p")}</span></span>}
+                        {d.assists > 0 && <span>🎯 {d.assists} {t("تمريرة","assist")} <span style={{ color:"#7BC67E", fontWeight:700 }}>+{d.aPts}{t("ن","p")}</span></span>}
+                        {d.cleanSheet && d.csPts > 0 && <span>🔒 {t("شباك نظيفة","CS")} <span style={{ color:"#5BC4FF", fontWeight:700 }}>+{d.csPts}{t("ن","p")}</span></span>}
+                        {d.cardPts > 0 && <span>🟨 {t("بطاقة","Card")} <span style={{ color:RED, fontWeight:700 }}>-{d.cardPts}{t("ن","p")}</span></span>}
+                        {capBonus && <span>© {t("مضاعف الكابتن","Cap ×2")} <span style={{ color:GOLD, fontWeight:700 }}>×2</span></span>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <button onClick={() => setSelectedPlayer(null)} style={{ ...S.btn(false), width:"100%", marginTop:4 }}>{t("إغلاق","Close")}</button>
+            </div>
+          </div>
+        );
+      })()}
+
       {toast && (
         <div className="pop" style={{ position: "fixed", bottom: 20, left: 0, right: 0, margin: "0 auto", width: "fit-content", background: "rgba(10,18,48,.95)", border: `1px solid ${GOLD}`, color: TEXT, padding: "10px 18px", borderRadius: 12, fontSize: 13, fontWeight: 700, zIndex: 50, boxShadow: `0 0 25px rgba(201,169,97,.3), 0 8px 24px rgba(0,0,0,.5)`, backdropFilter: "blur(10px)" }}>{toast}</div>
       )}
